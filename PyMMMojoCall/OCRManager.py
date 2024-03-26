@@ -1,9 +1,16 @@
 
 import os
+import time
 import platform
-from ctypes import c_bool, py_object, cast, c_uint32, c_void_p, CDLL, c_int, c_char_p, POINTER, c_wchar_p, CFUNCTYPE
+from enum import Enum
 from typing import Dict, Callable
-from PyMMMojoCall.XPluginManager import XPluginManager, MMMojoEnvironmentCallbackType, MMMojoEnvironmentInitParamType
+from MMMojoCall.proto import ocr_protobuf_pb2
+from PyMMMojoCall.XPluginManager import XPluginManager, MMMojoEnvironmentCallbackType, MMMojoEnvironmentInitParamType, MMMojoInfoMethod
+from ctypes import c_bool, py_object, cast, c_uint32, c_void_p, CDLL, c_int, c_char_p, POINTER, c_wchar_p, CFUNCTYPE, byref, string_at, memmove
+
+
+class RequestIdOCR(Enum):
+    OCRPush = 1
 
 
 def read_push(request_id: c_uint32, request_info: c_void_p, user_data: py_object):
@@ -11,11 +18,11 @@ def read_push(request_id: c_uint32, request_info: c_void_p, user_data: py_object
     if user_data:
         manager_obj: OCRManager = cast(user_data, py_object).value
         pb_size = c_uint32()
-        pb_data = manager_obj.GetPbSerializedData(request_info, pb_size)
-        if pb_size.value > 10:
-            print(f"正在解析pb数据，pb数据大小: {pb_size.value}")
-            manager_obj.CallUsrCallback(request_id, pb_data, pb_size.value)
-            manager_obj.RemoveReadInfo(request_info)
+        pb_data = manager_obj.mmmojo_dll.GetMMMojoReadInfoRequest(request_info, byref(pb_size))
+        chr_ptr = string_at(pb_data, pb_size.value)
+        ocr_response = ocr_protobuf_pb2.OcrResponse()
+        ocr_response.ParseFromString(chr_ptr)
+        manager_obj.result = ocr_response
 
 
 def read_pull(request_id:c_uint32, request_info:c_void_p, user_data: py_object):
@@ -30,14 +37,14 @@ def remote_connect(is_connected: c_bool, user_data: py_object):
     print(f"OCRRemoteOnConnect 回调函数被调用, 参数, is_connected: {is_connected}")
     if user_data:
         manager_obj: OCRManager = cast(user_data, py_object).value
-        manager_obj.SetConnectState(True)
+        manager_obj.m_connect_state = True
 
 
 def remote_disconnect(user_data: py_object):
     print(f"OCRRemoteOnDisConnect 回调函数被调用 ")
     if user_data:
         manager_obj: OCRManager = cast(user_data, py_object).value
-        manager_obj.SetConnectState(False)
+        manager_obj.m_connect_state = False
 
 
 def remote_process_launched(user_data: py_object):
@@ -67,19 +74,17 @@ callbacks = {
 class OCRManager(XPluginManager):
 
     OCR_MAX_TASK_ID: int = 32
-    m_task_id: list = [0] * OCR_MAX_TASK_ID
-    m_id_path: Dict[int, str] = {}
-    m_wechatocr_running: bool = False
+    m_task_id: int
+    m_init_mmmojo_env: bool = False
     m_connect_state: bool = False
     m_cb_data_use_json: bool = False
-    m_usr_callback: Callable = None
 
     def __init__(self, wechat_dir: str, wechat_ocr_dir: str):
         super().__init__(wechat_dir)
-        for i in range(self.OCR_MAX_TASK_ID):
-            self.m_task_id[i] = 0
 
         self._callbacks_refer = dict()
+        self.m_task_id = 0
+        self.result = None
 
         python_bit = platform.architecture()[0]
         if python_bit == "64bit":
@@ -89,64 +94,79 @@ class OCRManager(XPluginManager):
         mmmojo_dllpath = os.path.join(wechat_dir, dll_name)
         if not os.path.exists(mmmojo_dllpath):
             raise Exception("给定的微信路径不存在mmmojo.dll")
-        self._dll = CDLL(mmmojo_dllpath)
-        self._dll.InitializeMMMojo.restype = None
-        self._dll.InitializeMMMojo.argtypes = [c_int, POINTER(c_char_p)]
+        self.mmmojo_dll = CDLL(mmmojo_dllpath)
+        self.mmmojo_dll.InitializeMMMojo.restype = None
+        self.mmmojo_dll.InitializeMMMojo.argtypes = [c_int, POINTER(c_char_p)]
 
-        self._dll.ShutdownMMMojo.restype = None
-        self._dll.InitializeMMMojo.argtypes = []
+        self.mmmojo_dll.ShutdownMMMojo.restype = None
+        self.mmmojo_dll.InitializeMMMojo.argtypes = []
 
-        self._dll.CreateMMMojoEnvironment.restype = c_void_p
-        self._dll.CreateMMMojoEnvironment.argtypes = []
+        self.mmmojo_dll.CreateMMMojoEnvironment.restype = c_void_p
+        self.mmmojo_dll.CreateMMMojoEnvironment.argtypes = []
 
-        self._dll.SetMMMojoEnvironmentCallbacks.restype = None
-        self._dll.SetMMMojoEnvironmentCallbacks.argtypes = [c_void_p, c_int, py_object]
+        self.mmmojo_dll.SetMMMojoEnvironmentCallbacks.restype = None
+        self.mmmojo_dll.SetMMMojoEnvironmentCallbacks.argtypes = [c_void_p, c_int, py_object]
 
-        self._dll.SetMMMojoEnvironmentInitParams.restype = None
-        self._dll.SetMMMojoEnvironmentInitParams.argtypes = [c_void_p, c_int, c_void_p]
+        self.mmmojo_dll.SetMMMojoEnvironmentInitParams.restype = None
+        self.mmmojo_dll.SetMMMojoEnvironmentInitParams.argtypes = [c_void_p, c_int, c_void_p]
 
-        self._dll.AppendMMSubProcessSwitchNative.restype = None
-        self._dll.AppendMMSubProcessSwitchNative.argtypes = [c_void_p, c_char_p, c_wchar_p]
+        self.mmmojo_dll.AppendMMSubProcessSwitchNative.restype = None
+        self.mmmojo_dll.AppendMMSubProcessSwitchNative.argtypes = [c_void_p, c_char_p, c_wchar_p]
 
-        self._dll.StartMMMojoEnvironment.restype = None
-        self._dll.StartMMMojoEnvironment.argtypes = [c_void_p]
+        self.mmmojo_dll.StartMMMojoEnvironment.restype = None
+        self.mmmojo_dll.StartMMMojoEnvironment.argtypes = [c_void_p]
 
-        # # void StopMMMojoEnvironment(void* mmmojo_env);
-        # StopMMMojoEnvironment = self.func_def("StopMMMojoEnvironment", void, *(c_void_p,))
-        # # void RemoveMMMojoEnvironment(void* mmmojo_env);
-        # RemoveMMMojoEnvironment = self.func_def("RemoveMMMojoEnvironment", void, *(c_void_p,))
-        # # const void* GetMMMojoReadInfoRequest(const void* mmmojo_readinfo, uint32_t* request_data_size);
-        # GetMMMojoReadInfoRequest = self.func_def("GetMMMojoReadInfoRequest", c_void_p, *(c_void_p, POINTER(c_uint32)))
-        # # const void* GetMMMojoReadInfoAttach(const void* mmmojo_readinfo, uint32_t* attach_data_size);
-        # GetMMMojoReadInfoAttach = self.func_def("GetMMMojoReadInfoAttach", c_void_p, *(c_void_p, POINTER(c_uint32)))
-        # # void RemoveMMMojoReadInfo(void* mmmojo_readinfo);
-        # RemoveMMMojoReadInfo = self.func_def("RemoveMMMojoReadInfo", void, *(c_void_p,))
-        # # int GetMMMojoReadInfoMethod(const void* mmmojo_readinfo);
-        # GetMMMojoReadInfoMethod = self.func_def("GetMMMojoReadInfoMethod", c_int, *(c_void_p,))
-        # # bool GetMMMojoReadInfoSync(const void* mmmojo_readinfo);
-        # GetMMMojoReadInfoSync = self.func_def("GetMMMojoReadInfoSync", c_bool, *(c_void_p,))
-        # # void* CreateMMMojoWriteInfo(int method, bool sync, uint32_t request_id);
-        # CreateMMMojoWriteInfo = self.func_def("CreateMMMojoWriteInfo", c_void_p, *(c_int, c_bool, c_uint32))
-        # # void* GetMMMojoWriteInfoRequest(void* mmmojo_writeinfo, uint32_t request_data_size);
-        # GetMMMojoWriteInfoRequest = self.func_def("GetMMMojoWriteInfoRequest", c_void_p, *(c_void_p, c_uint32))
-        # # void RemoveMMMojoWriteInfo(void* mmmojo_writeinfo);
-        # RemoveMMMojoWriteInfo = self.func_def("RemoveMMMojoWriteInfo", void, *(c_void_p,))
-        # # void* GetMMMojoWriteInfoAttach(void* mmmojo_writeinfo,uint32_t attach_data_size);
-        # GetMMMojoWriteInfoAttach = self.func_def("GetMMMojoWriteInfoAttach", c_void_p, *(c_void_p, c_uint32))
-        # # void SetMMMojoWriteInfoMessagePipe(void* mmmojo_writeinfo,int num_of_message_pipe);
-        # SetMMMojoWriteInfoMessagePipe = self.func_def("SetMMMojoWriteInfoMessagePipe", void, *(c_void_p, c_int))
-        # # void SetMMMojoWriteInfoResponseSync(void* mmmojo_writeinfo, void** mmmojo_readinfo);
-        # SetMMMojoWriteInfoResponseSync = self.func_def("SetMMMojoWriteInfoResponseSync", void, *(c_void_p, POINTER(c_void_p)))
-        # # bool SendMMMojoWriteInfo(void* mmmojo_env,void* mmmojo_writeinfo);
-        # SendMMMojoWriteInfo = self.func_def("SendMMMojoWriteInfo", c_bool, *(c_void_p, c_void_p))
-        # # bool SwapMMMojoWriteInfoCallback(void* mmmojo_writeinfo,void* mmmojo_readinfo);
-        # SwapMMMojoWriteInfoCallback = self.func_def("SwapMMMojoWriteInfoCallback", c_bool, *(c_void_p, c_void_p))
-        # # bool SwapMMMojoWriteInfoMessage(void* mmmojo_writeinfo, void* mmmojo_readinfo);
-        # SwapMMMojoWriteInfoMessage = self.func_def("SwapMMMojoWriteInfoMessage", c_bool, *(c_void_p, c_void_p))
+        self.mmmojo_dll.StopMMMojoEnvironment.restype = None
+        self.mmmojo_dll.StopMMMojoEnvironment.argtypes = [c_void_p]
 
-        self._dll.InitializeMMMojo(0, None)
+        self.mmmojo_dll.RemoveMMMojoEnvironment.restype = None
+        self.mmmojo_dll.RemoveMMMojoEnvironment.argtypes = [c_void_p]
 
-        self.m_mmmojo_env_ptr = c_void_p(self._dll.CreateMMMojoEnvironment())
+        self.mmmojo_dll.GetMMMojoReadInfoRequest.restype = c_void_p
+        self.mmmojo_dll.GetMMMojoReadInfoRequest.argtypes = [c_void_p, POINTER(c_uint32)]
+
+        self.mmmojo_dll.GetMMMojoReadInfoAttach.restype = c_void_p
+        self.mmmojo_dll.GetMMMojoReadInfoAttach.argtypes = [c_void_p, POINTER(c_uint32)]
+
+        self.mmmojo_dll.RemoveMMMojoReadInfo.restype = None
+        self.mmmojo_dll.RemoveMMMojoReadInfo.argtypes = [c_void_p]
+
+        self.mmmojo_dll.GetMMMojoReadInfoMethod.restype = c_int
+        self.mmmojo_dll.GetMMMojoReadInfoMethod.argtypes = [c_void_p]
+
+        self.mmmojo_dll.GetMMMojoReadInfoSync.restype = c_bool
+        self.mmmojo_dll.GetMMMojoReadInfoSync.argtypes = [c_void_p]
+
+        self.mmmojo_dll.CreateMMMojoWriteInfo.restype = c_void_p
+        self.mmmojo_dll.CreateMMMojoWriteInfo.argtypes = [c_int, c_bool, c_uint32]
+
+        self.mmmojo_dll.GetMMMojoWriteInfoRequest.restype = c_void_p
+        self.mmmojo_dll.GetMMMojoWriteInfoRequest.argtypes = [c_void_p, c_uint32]
+
+        self.mmmojo_dll.RemoveMMMojoWriteInfo.restype = None
+        self.mmmojo_dll.RemoveMMMojoWriteInfo.argtypes = [c_void_p]
+
+        self.mmmojo_dll.GetMMMojoWriteInfoAttach.restype = c_void_p
+        self.mmmojo_dll.GetMMMojoWriteInfoAttach.argtypes = [c_void_p, c_uint32]
+
+        self.mmmojo_dll.SetMMMojoWriteInfoMessagePipe.restype = None
+        self.mmmojo_dll.SetMMMojoWriteInfoMessagePipe.argtypes = [c_void_p, c_int]
+
+        self.mmmojo_dll.SetMMMojoWriteInfoResponseSync.restype = None
+        self.mmmojo_dll.SetMMMojoWriteInfoResponseSync.argtypes = [c_void_p, POINTER(c_void_p)]
+
+        self.mmmojo_dll.SendMMMojoWriteInfo.restype = c_bool
+        self.mmmojo_dll.SendMMMojoWriteInfo.argtypes = [c_void_p, c_void_p]
+
+        self.mmmojo_dll.SwapMMMojoWriteInfoCallback.restype = c_bool
+        self.mmmojo_dll.SwapMMMojoWriteInfoCallback.argtypes = [c_void_p, c_void_p]
+
+        self.mmmojo_dll.SwapMMMojoWriteInfoMessage.restype = c_bool
+        self.mmmojo_dll.SwapMMMojoWriteInfoMessage.argtypes = [c_void_p, c_void_p]
+
+        self.mmmojo_dll.InitializeMMMojo(0, None)
+
+        self.m_mmmojo_env_ptr = c_void_p(self.mmmojo_dll.CreateMMMojoEnvironment())
         if not self.m_mmmojo_env_ptr:
             raise Exception("CreateMMMojoEnvironment失败!")
 
@@ -157,27 +177,52 @@ class OCRManager(XPluginManager):
         for i in MMMojoEnvironmentCallbackType:
             fname = i.name
             if fname == "kMMUserData":
-                self._dll.SetMMMojoEnvironmentCallbacks(self.m_mmmojo_env_ptr, i.value, py_object(self.m_cb_usrdata))
+                self.mmmojo_dll.SetMMMojoEnvironmentCallbacks(self.m_mmmojo_env_ptr, i.value, py_object(self.m_cb_usrdata))
             else:
                 callback, callback_def = callbacks[fname]
-                self._dll.SetMMMojoEnvironmentCallbacks.restype = None
-                self._dll.SetMMMojoEnvironmentCallbacks.argtypes = [c_void_p, c_int, callback_def]
+                self.mmmojo_dll.SetMMMojoEnvironmentCallbacks.restype = None
+                self.mmmojo_dll.SetMMMojoEnvironmentCallbacks.argtypes = [c_void_p, c_int, callback_def]
                 self._callbacks_refer[fname] = callback_def(callback)
-                self._dll.SetMMMojoEnvironmentCallbacks(self.m_mmmojo_env_ptr, i.value, self._callbacks_refer[fname])
+                self.mmmojo_dll.SetMMMojoEnvironmentCallbacks(self.m_mmmojo_env_ptr, i.value, self._callbacks_refer[fname])
         # # 设置启动所需参数
-        self._dll.SetMMMojoEnvironmentInitParams.restype = None
-        self._dll.SetMMMojoEnvironmentInitParams.argtypes = [c_void_p, c_int, c_int]
-        self._dll.SetMMMojoEnvironmentInitParams(self.m_mmmojo_env_ptr, MMMojoEnvironmentInitParamType.kMMHostProcess.value, 1)
-        self._dll.SetMMMojoEnvironmentInitParams.restype = None
-        self._dll.SetMMMojoEnvironmentInitParams.argtypes = [c_void_p, c_int, c_wchar_p]
-        self._dll.SetMMMojoEnvironmentInitParams(self.m_mmmojo_env_ptr, MMMojoEnvironmentInitParamType.kMMExePath.value, wechat_ocr_dir)
+        self.mmmojo_dll.SetMMMojoEnvironmentInitParams.restype = None
+        self.mmmojo_dll.SetMMMojoEnvironmentInitParams.argtypes = [c_void_p, c_int, c_int]
+        self.mmmojo_dll.SetMMMojoEnvironmentInitParams(self.m_mmmojo_env_ptr, MMMojoEnvironmentInitParamType.kMMHostProcess.value, 1)
+        self.mmmojo_dll.SetMMMojoEnvironmentInitParams.restype = None
+        self.mmmojo_dll.SetMMMojoEnvironmentInitParams.argtypes = [c_void_p, c_int, c_wchar_p]
+        self.mmmojo_dll.SetMMMojoEnvironmentInitParams(self.m_mmmojo_env_ptr, MMMojoEnvironmentInitParamType.kMMExePath.value, wechat_ocr_dir)
         # # 设置SwitchNative命令行参数
-        # self.AppendSwitchNativeCmdLine("user-lib-dir", wechat_dir)
-        self._dll.AppendMMSubProcessSwitchNative(self.m_mmmojo_env_ptr, c_char_p("user-lib-dir".encode()), c_wchar_p(wechat_dir))
-        self._dll.StartMMMojoEnvironment(self.m_mmmojo_env_ptr)
+        self.mmmojo_dll.AppendMMSubProcessSwitchNative(self.m_mmmojo_env_ptr, c_char_p("user-lib-dir".encode()), c_wchar_p(wechat_dir))
+        self.mmmojo_dll.StartMMMojoEnvironment(self.m_mmmojo_env_ptr)
         self.m_init_mmmojo_env = True
+        while not self.m_connect_state:
+            time.sleep(0.5)
 
-    # def AppendSwitchNativeCmdLine(self, arg: str, value: str) -> None:
-    #     ck = c_char_p(arg.encode())
-    #     cv = c_wchar_p(value)
-    #     self._dll.AppendMMSubProcessSwitchNative(self.m_mmmojo_env_ptr, ck, cv)
+    def __del__(self):
+        self.m_connect_state = False
+        self.m_init_mmmojo_env = False
+        self.mmmojo_dll.StopMMMojoEnvironment(self.m_mmmojo_env_ptr)
+        self.mmmojo_dll.RemoveMMMojoEnvironment(self.m_mmmojo_env_ptr)
+        self.m_mmmojo_env_ptr = c_void_p(None)
+
+    def ocr(self, pic_path: str):
+        assert self.m_init_mmmojo_env
+        self.result = None
+        if not os.path.exists(pic_path):
+            raise Exception(f"给定图片路径pic_path不存在: {pic_path}")
+        pic_path = os.path.abspath(pic_path)
+        _id = self.m_task_id % self.OCR_MAX_TASK_ID
+        self.m_task_id += 1
+        ocr_request = ocr_protobuf_pb2.OcrRequest()
+        ocr_request.unknow = 0
+        ocr_request.task_id = _id
+        ocr_request.pic_path.pic_path.append(pic_path)
+        serialized_data = ocr_request.SerializeToString()
+        write_info: c_void_p = self.mmmojo_dll.CreateMMMojoWriteInfo(c_int(MMMojoInfoMethod.kMMPush.value), c_int(0), c_uint32(RequestIdOCR.OCRPush.value))
+        request: c_void_p = self.mmmojo_dll.GetMMMojoWriteInfoRequest(write_info, c_uint32(len(serialized_data)))
+        memmove(request, c_char_p(serialized_data), len(serialized_data))
+        self.mmmojo_dll.SendMMMojoWriteInfo(self.m_mmmojo_env_ptr, write_info)
+        while not self.result:
+            time.sleep(0.5)
+        return self.result
+
