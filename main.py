@@ -38,7 +38,8 @@ def main2():
 
 def main():
     ocr_manager = OCRManager(wechat_dir, wechat_ocr_dir)
-    print('')
+    print(ocr_manager)
+    ocr_manager.DoOCRTask(r"test.png")
 
 
 if __name__ == "__main__":

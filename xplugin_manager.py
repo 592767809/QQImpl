@@ -139,13 +139,10 @@ class XPluginManager(object):
         self._dll.SetMMMojoEnvironmentCallbacks(self.m_mmmojo_env_ptr, MMMojoEnvironmentCallbackType.kMMUserData.value, py_object(self.m_cb_usrdata))
         self.SetDefaultCallbaks()
         # 设置启动所需参数
-        SetMMMojoEnvironmentInitParams = self._dll.func_def("SetMMMojoEnvironmentInitParams", void,
-                                                            *(c_void_p, c_int, c_int))
+        SetMMMojoEnvironmentInitParams = self._dll.func_def("SetMMMojoEnvironmentInitParams", void, *(c_void_p, c_int, c_int))
         SetMMMojoEnvironmentInitParams(self.m_mmmojo_env_ptr, MMMojoEnvironmentInitParamType.kMMHostProcess.value, 1)
-        SetMMMojoEnvironmentInitParams = self._dll.func_def("SetMMMojoEnvironmentInitParams", void,
-                                                            *(c_void_p, c_int, c_wchar_p))
-        SetMMMojoEnvironmentInitParams(self.m_mmmojo_env_ptr, MMMojoEnvironmentInitParamType.kMMExePath.value,
-                                       self.m_exe_path)
+        SetMMMojoEnvironmentInitParams = self._dll.func_def("SetMMMojoEnvironmentInitParams", void, *(c_void_p, c_int, c_wchar_p))
+        SetMMMojoEnvironmentInitParams(self.m_mmmojo_env_ptr, MMMojoEnvironmentInitParamType.kMMExePath.value, self.m_exe_path)
         # 设置SwitchNative命令行参数
         for k, v in self.m_switch_native.items():
             ck = c_char_p(k.encode())
@@ -162,8 +159,7 @@ class XPluginManager(object):
                 continue
             callback = self.m_callbacks.get(fname, None) or getattr(default_callback, f"Default{fname[3:]}")
             callback_def = default_callback.callbacks_def[fname]
-            SetMMMojoEnvironmentCallbacks = self._dll.func_def("SetMMMojoEnvironmentCallbacks", void,
-                                                               *(c_void_p, c_int, callback_def))
+            SetMMMojoEnvironmentCallbacks = self._dll.func_def("SetMMMojoEnvironmentCallbacks", void, *(c_void_p, c_int, callback_def))
             self._callbacks_refer[fname] = callback_def(callback)
             SetMMMojoEnvironmentCallbacks(self.m_mmmojo_env_ptr, i.value, self._callbacks_refer[fname])
 
