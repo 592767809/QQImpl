@@ -148,7 +148,7 @@ if __name__ == '__main__':
 	print('\033[31m[+] InitMMMojoDLLFuncs Over!\033[0m')
 	
 	# 初始化MMMojo (包括ThreadPool等), 只需要调用一次.	
-	mmmojocall_init_mmmojo_global_func(0, None);
+	mmmojocall_init_mmmojo_global_func(0, None)
 
 	#------------------------
 	#以下为使用封装好的OCRManager类调用WeChatOCR进行OCR的示例 与 UtilityManager类调用WeChatUtility扫描二维码的示例
