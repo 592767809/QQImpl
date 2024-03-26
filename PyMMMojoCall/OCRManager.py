@@ -4,7 +4,6 @@ import time
 import platform
 from enum import Enum
 from MMMojoCall.proto import ocr_protobuf_pb2
-from PyMMMojoCall.XPluginManager import XPluginManager, MMMojoEnvironmentCallbackType, MMMojoEnvironmentInitParamType, MMMojoInfoMethod
 from ctypes import c_bool, py_object, cast, c_uint32, c_void_p, CDLL, c_int, c_char_p, POINTER, c_wchar_p, CFUNCTYPE, byref, string_at, memmove
 
 
@@ -13,7 +12,7 @@ class RequestIdOCR(Enum):
 
 
 def read_push(request_id: c_uint32, request_info: c_void_p, user_data: py_object):
-    print(f"OCRReadOnPush 回调函数被调用 参数, request_id: {request_id}, request_info: {request_info}")
+    print(f"kMMReadPush 回调函数被调用 参数, request_id: {request_id}, request_info: {request_info}")
     if user_data:
         manager_obj: OCRManager = cast(user_data, py_object).value
         pb_size = c_uint32()
@@ -25,37 +24,37 @@ def read_push(request_id: c_uint32, request_info: c_void_p, user_data: py_object
 
 
 def read_pull(request_id:c_uint32, request_info:c_void_p, user_data: py_object):
-    print(f"DefaultReadOnPull 回调函数被调用, request_id: {request_id}, request_info: {request_info} ")
+    print(f"kMMReadPull 回调函数被调用, request_id: {request_id}, request_info: {request_info} ")
 
 
-def read_shared(request_id:c_uint32, request_info:c_void_p, user_data: py_object):
-    print(f"DefaultReadOnShared 回调函数被调用, request_id: {request_id}, request_info: {request_info} ")
+def read_shared(request_id: c_uint32, request_info:c_void_p, user_data: py_object):
+    print(f"kMMReadShared 回调函数被调用, request_id: {request_id}, request_info: {request_info} ")
 
 
 def remote_connect(is_connected: c_bool, user_data: py_object):
-    print(f"OCRRemoteOnConnect 回调函数被调用, 参数, is_connected: {is_connected}")
+    print(f"kMMRemoteConnect 回调函数被调用, 参数, is_connected: {is_connected}")
     if user_data:
         manager_obj: OCRManager = cast(user_data, py_object).value
         manager_obj.m_connect_state = True
 
 
 def remote_disconnect(user_data: py_object):
-    print(f"OCRRemoteOnDisConnect 回调函数被调用 ")
+    print(f"kMMRemoteDisconnect 回调函数被调用 ")
     if user_data:
         manager_obj: OCRManager = cast(user_data, py_object).value
         manager_obj.m_connect_state = False
 
 
 def remote_process_launched(user_data: py_object):
-    print(f"DefaultRemoteProcessLaunched 回调函数被调用 ")
+    print(f"kMMRemoteProcessLaunched 回调函数被调用 ")
 
 
 def remote_process_launch_failed(error_code: c_int, user_data: py_object):
-    print(f"DefaultRemoteProcessLaunchFailed 回调函数被调用, error_code: {error_code}")
+    print(f"kMMRemoteProcessLaunchFailed 回调函数被调用, error_code: {error_code}")
 
 
 def remote_mojo_error(errorbuf: c_void_p, errorsize: c_int, user_data: py_object):
-    print(f"DefaultRemoteOnMojoError 回调函数被调用, errorbuf: {errorbuf}, errorsize: {errorsize}")
+    print(f"kMMRemoteMojoError 回调函数被调用, errorbuf: {errorbuf}, errorsize: {errorsize}")
 
 
 callbacks = {
@@ -70,7 +69,7 @@ callbacks = {
 }
 
 
-class OCRManager(XPluginManager):
+class OCRManager(object):
 
     OCR_MAX_TASK_ID: int = 32
     m_task_id: int
@@ -78,12 +77,11 @@ class OCRManager(XPluginManager):
     m_connect_state: bool = False
     m_cb_data_use_json: bool = False
 
-    def __init__(self, wechat_dir: str, wechat_ocr_dir: str):
-        super().__init__(wechat_dir)
-
+    def __init__(self, wechat_dir: str, wechat_ocr_dir: str, ojo_type: dict):
         self._callbacks_refer = dict()
         self.m_task_id = 0
         self.result = None
+        self.ojo_type = ojo_type
 
         python_bit = platform.architecture()[0]
         if python_bit == "64bit":
@@ -173,7 +171,7 @@ class OCRManager(XPluginManager):
         self.m_usr_lib_dir = wechat_dir
 
         # 设置回调函数的最后一个参数user_data的值
-        for i in MMMojoEnvironmentCallbackType:
+        for i in self.ojo_type['MMMojoEnvironmentCallbackType']:
             fname = i.name
             if fname == "kMMUserData":
                 self.mmmojo_dll.SetMMMojoEnvironmentCallbacks(self.m_mmmojo_env_ptr, i.value, py_object(self.m_cb_usrdata))
@@ -186,10 +184,10 @@ class OCRManager(XPluginManager):
         # # 设置启动所需参数
         self.mmmojo_dll.SetMMMojoEnvironmentInitParams.restype = None
         self.mmmojo_dll.SetMMMojoEnvironmentInitParams.argtypes = [c_void_p, c_int, c_int]
-        self.mmmojo_dll.SetMMMojoEnvironmentInitParams(self.m_mmmojo_env_ptr, MMMojoEnvironmentInitParamType.kMMHostProcess.value, 1)
+        self.mmmojo_dll.SetMMMojoEnvironmentInitParams(self.m_mmmojo_env_ptr, self.ojo_type['MMMojoEnvironmentInitParamType'].kMMHostProcess.value, 1)
         self.mmmojo_dll.SetMMMojoEnvironmentInitParams.restype = None
         self.mmmojo_dll.SetMMMojoEnvironmentInitParams.argtypes = [c_void_p, c_int, c_wchar_p]
-        self.mmmojo_dll.SetMMMojoEnvironmentInitParams(self.m_mmmojo_env_ptr, MMMojoEnvironmentInitParamType.kMMExePath.value, wechat_ocr_dir)
+        self.mmmojo_dll.SetMMMojoEnvironmentInitParams(self.m_mmmojo_env_ptr, self.ojo_type['MMMojoEnvironmentInitParamType'].kMMExePath.value, wechat_ocr_dir)
         # # 设置SwitchNative命令行参数
         self.mmmojo_dll.AppendMMSubProcessSwitchNative(self.m_mmmojo_env_ptr, c_char_p("user-lib-dir".encode()), c_wchar_p(wechat_dir))
         self.mmmojo_dll.StartMMMojoEnvironment(self.m_mmmojo_env_ptr)
@@ -217,7 +215,7 @@ class OCRManager(XPluginManager):
         ocr_request.task_id = _id
         ocr_request.pic_path.pic_path.append(pic_path)
         serialized_data = ocr_request.SerializeToString()
-        write_info: c_void_p = self.mmmojo_dll.CreateMMMojoWriteInfo(c_int(MMMojoInfoMethod.kMMPush.value), c_int(0), c_uint32(RequestIdOCR.OCRPush.value))
+        write_info: c_void_p = self.mmmojo_dll.CreateMMMojoWriteInfo(c_int(self.ojo_type['MMMojoInfoMethod'].kMMPush.value), c_int(0), c_uint32(RequestIdOCR.OCRPush.value))
         request: c_void_p = self.mmmojo_dll.GetMMMojoWriteInfoRequest(write_info, c_uint32(len(serialized_data)))
         memmove(request, c_char_p(serialized_data), len(serialized_data))
         self.mmmojo_dll.SendMMMojoWriteInfo(self.m_mmmojo_env_ptr, write_info)
