@@ -3,7 +3,6 @@ import os
 import time
 import platform
 from enum import Enum
-from typing import Dict, Callable
 from MMMojoCall.proto import ocr_protobuf_pb2
 from PyMMMojoCall.XPluginManager import XPluginManager, MMMojoEnvironmentCallbackType, MMMojoEnvironmentInitParamType, MMMojoInfoMethod
 from ctypes import c_bool, py_object, cast, c_uint32, c_void_p, CDLL, c_int, c_char_p, POINTER, c_wchar_p, CFUNCTYPE, byref, string_at, memmove
