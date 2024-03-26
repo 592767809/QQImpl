@@ -39,11 +39,15 @@ class MMMojoEnvironmentInitParamType(Enum):
 
 class XPluginManager(object):
 
-    def __init__(self, wechat_dir: str, wechat_ocr_dir: str):
-        self.OCRManager = OCRManager(wechat_dir, wechat_ocr_dir, {
+    def __init__(self, wechat_dir: str, wechat_ocr_dir: str, wechat_utility_dir: str):
+        # self.OCRManager = OCRManager(wechat_dir, wechat_ocr_dir, {
+        #     'MMMojoInfoMethod': MMMojoInfoMethod,
+        #     'MMMojoEnvironmentCallbackType': MMMojoEnvironmentCallbackType,
+        #     'MMMojoEnvironmentInitParamType': MMMojoEnvironmentInitParamType
+        # })
+        self.UtilityManager = UtilityManager(wechat_dir, wechat_utility_dir, {
             'MMMojoInfoMethod': MMMojoInfoMethod,
             'MMMojoEnvironmentCallbackType': MMMojoEnvironmentCallbackType,
             'MMMojoEnvironmentInitParamType': MMMojoEnvironmentInitParamType
         })
-        self.UtilityManager = UtilityManager()
 
