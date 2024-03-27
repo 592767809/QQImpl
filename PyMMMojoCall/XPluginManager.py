@@ -59,7 +59,7 @@ class RequestIdUtility(Enum):
 
 
 def read_push(request_id: c_uint32, request_info: c_void_p, user_data: py_object):
-    print(f"kMMReadPush 回调函数被调用 参数, request_id: {request_id}, request_info: {request_info}")
+    # print(f"kMMReadPush 回调函数被调用 参数, request_id: {request_id}, request_info: {request_info}")
     if user_data:
         manager_obj = cast(user_data, py_object).value
         pb_size = c_uint32()
@@ -69,7 +69,7 @@ def read_push(request_id: c_uint32, request_info: c_void_p, user_data: py_object
 
 
 def read_pull(request_id:c_uint32, request_info:c_void_p, user_data: py_object):
-    print(f"kMMReadPull 回调函数被调用, request_id: {request_id}, request_info: {request_info} ")
+    # print(f"kMMReadPull 回调函数被调用, request_id: {request_id}, request_info: {request_info} ")
     if user_data:
         manager_obj = cast(user_data, py_object).value
         pb_size = c_uint32()
@@ -79,33 +79,37 @@ def read_pull(request_id:c_uint32, request_info:c_void_p, user_data: py_object):
 
 
 def read_shared(request_id: c_uint32, request_info:c_void_p, user_data: py_object):
-    print(f"kMMReadShared 回调函数被调用, request_id: {request_id}, request_info: {request_info} ")
+    pass
+    # print(f"kMMReadShared 回调函数被调用, request_id: {request_id}, request_info: {request_info} ")
 
 
 def remote_connect(is_connected: c_bool, user_data: py_object):
-    print(f"kMMRemoteConnect 回调函数被调用, 参数, is_connected: {is_connected}")
+    # print(f"kMMRemoteConnect 回调函数被调用, 参数, is_connected: {is_connected}")
     if user_data:
         manager_obj = cast(user_data, py_object).value
         manager_obj.m_connect_state = True
 
 
 def remote_disconnect(user_data: py_object):
-    print(f"kMMRemoteDisconnect 回调函数被调用 ")
+    # print(f"kMMRemoteDisconnect 回调函数被调用 ")
     if user_data:
         manager_obj = cast(user_data, py_object).value
         manager_obj.m_connect_state = False
 
 
 def remote_process_launched(user_data: py_object):
-    print(f"kMMRemoteProcessLaunched 回调函数被调用 ")
+    pass
+    # print(f"kMMRemoteProcessLaunched 回调函数被调用 ")
 
 
 def remote_process_launch_failed(error_code: c_int, user_data: py_object):
-    print(f"kMMRemoteProcessLaunchFailed 回调函数被调用, error_code: {error_code}")
+    pass
+    # print(f"kMMRemoteProcessLaunchFailed 回调函数被调用, error_code: {error_code}")
 
 
 def remote_mojo_error(errorbuf: c_void_p, errorsize: c_int, user_data: py_object):
-    print(f"kMMRemoteMojoError 回调函数被调用, errorbuf: {errorbuf}, errorsize: {errorsize}")
+    pass
+    # print(f"kMMRemoteMojoError 回调函数被调用, errorbuf: {errorbuf}, errorsize: {errorsize}")
 
 
 class BaseManager(object):
