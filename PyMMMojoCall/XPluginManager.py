@@ -3,7 +3,7 @@ import os
 import time
 import platform
 from enum import Enum, auto
-from MMMojoCall.proto import utility_protobuf_pb2, ocr_protobuf_pb2
+from PyMMMojoCall import ocr_protobuf_pb2, utility_protobuf_pb2
 from ctypes import c_bool, py_object, cast, c_uint32, c_void_p, CDLL, c_int, c_char_p, POINTER, c_wchar_p, CFUNCTYPE, byref, string_at, memmove
 
 

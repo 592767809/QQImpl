@@ -1,0 +1,3 @@
+protoc --python_out=. --pyi_out=. ocr_protobuf.proto
+protoc --python_out=. --pyi_out=. player_protobuf.proto
+protoc --python_out=. --pyi_out=. utility_protobuf.proto
